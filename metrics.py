@@ -150,9 +150,9 @@ def calculate_batch_psnr_ssim(real_dir, fake_dir, data_range=255.0, target_size=
     return np.mean(psnr_values), np.mean(ssim_values)
 
 
-def calculate_batch_psnr_ssim_pt(pred_tensor, target_tensor, data_range=1, average=False):
+def calculate_batch_psnr_ssim_pt(pred_tensor, target_tensor, data_range=1.0, average=False):
     """
-    Calculate PSNR and SSIM for tensor inputs (via NumPy)
+    Calculate PSNR and SSIM for tensor inputs (aligned with OpenCV version)
 
     Args:
         pred_tensor: Predicted image tensor [B,C,H,W] or [C,H,W]
@@ -181,26 +181,36 @@ def calculate_batch_psnr_ssim_pt(pred_tensor, target_tensor, data_range=1, avera
 
     # Process each image
     for p, t in zip(pred_np, target_np):
-        # Convert to grayscale
+        # Convert to float64 (consistent with OpenCV version)
+        p = p.astype(np.float64)
+        t = t.astype(np.float64)
+
+        # Convert to grayscale using OpenCV's method (consistent with OpenCV version)
         if p.shape[2] == 3:  # RGB image
-            p_gray = np.dot(p[..., :3], [0.299, 0.587, 0.114])
-            t_gray = np.dot(t[..., :3], [0.299, 0.587, 0.114])
+            # Convert to uint8 (OpenCV expects 0-255 for grayscale conversion)
+            p_uint8 = (p * 255.0).clip(0, 255).astype(np.uint8)
+            t_uint8 = (t * 255.0).clip(0, 255).astype(np.uint8)
+
+            # Convert to grayscale using OpenCV (consistent with OpenCV version)
+            p_gray = cv2.cvtColor(p_uint8, cv2.COLOR_RGB2GRAY).astype(np.float64) / 255.0 * data_range
+            t_gray = cv2.cvtColor(t_uint8, cv2.COLOR_RGB2GRAY).astype(np.float64) / 255.0 * data_range
         else:  # Already grayscale
             p_gray = p.squeeze()
             t_gray = t.squeeze()
 
         # Calculate PSNR
-        psnr_values.append(peak_signal_noise_ratio(
-            p_gray, t_gray,
+        psnr = peak_signal_noise_ratio(
+            t_gray, p_gray,  # Note: OpenCV uses (ref, test) order
             data_range=data_range
-        ))
+        )
+        psnr_values.append(psnr)
 
-        # Calculate SSIM
-        ssim_values.append(structural_similarity(
-            p_gray, t_gray,
-            win_size=3,
+        # Calculate SSIM (use same parameters as OpenCV version)
+        ssim = structural_similarity(
+            t_gray, p_gray,  # Note: OpenCV uses (ref, test) order
             data_range=data_range
-        ))
+        )
+        ssim_values.append(ssim)
 
     # Return results
     return (np.mean(psnr_values), np.mean(ssim_values)) if average else (sum(psnr_values), sum(ssim_values))
@@ -212,8 +222,8 @@ if __name__ == '__main__':
     BATCH_SIZE = 16
 
     # Path configuration
-    target_path = 'target_path'
-    fake_path = 'fake_path'
+    target_path = 'your_target_path'
+    fake_path = 'your_fake_path'
 
     # Calculate metrics
     psnr, ssim = calculate_batch_psnr_ssim(target_path, fake_path, target_size=TARGET_SIZE)
