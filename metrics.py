@@ -1,9 +1,4 @@
 import os
-
-######### Set GPUs ###########
-os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
-os.environ["CUDA_VISIBLE_DEVICES"] = '0'
-
 import numpy as np
 import torch
 import lpips
@@ -218,19 +213,19 @@ def calculate_batch_psnr_ssim_pt(pred_tensor, target_tensor, data_range=1.0, ave
 
 if __name__ == '__main__':
     # Set target size and batch size
-    TARGET_SIZE = (128, 128)
+    TARGET_SIZE = (256, 256)
     BATCH_SIZE = 16
 
     # Path configuration
-    target_path = 'your_target_path'
+    target_path = 'your_traget_path'
     fake_path = 'your_fake_path'
 
     # Calculate metrics
     psnr, ssim = calculate_batch_psnr_ssim(target_path, fake_path, target_size=TARGET_SIZE)
-    lpips = calculate_batch_lpips(target_path, fake_path, batch_size=BATCH_SIZE)
+    lpips_value = calculate_batch_lpips(target_path, fake_path, batch_size=BATCH_SIZE)
 
     print('======Calculate FID======')
     # Calculate FID
     fid_value = calculate_fid_given_paths([target_path, fake_path], batch_size=BATCH_SIZE, device='cuda', dims=2048)
 
-    print("[PSNR: %.4f\t SSIM: %.4f\t LPIPS: %.4f\t FID: %.4f]" % (psnr, ssim, lpips, fid_value))
+    print("[PSNR: %.4f\t SSIM: %.4f\t LPIPS: %.4f\t FID: %.4f]" % (psnr, ssim, lpips_value, fid_value))
