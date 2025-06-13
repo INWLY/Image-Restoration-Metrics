@@ -359,8 +359,8 @@ if __name__ == '__main__':
     BATCH_SIZE = 1
 
     # Path configuration
-    target_path = '/mnt/disk1/ruanwentao/data/Character/denoise/test/target'
-    fake_path = '/mnt/disk1/ruanwentao/code/ImageRestoration/logs/Character/denoise/CharFormer/results/286'
+    target_path = ''
+    fake_path = ''
 
     # Calculate metrics
     psnr, ssim = calculate_batch_psnr_ssim(target_path, fake_path, target_size=TARGET_SIZE)
