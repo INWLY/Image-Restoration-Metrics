@@ -1,4 +1,9 @@
 import os
+
+######### Set GPUs ###########
+os.environ["CUDA_DEVICE_ORDER"] = "PCI_BUS_ID"
+os.environ["CUDA_VISIBLE_DEVICES"] = '1'
+
 import numpy as np
 import torch
 import lpips
@@ -211,14 +216,151 @@ def calculate_batch_psnr_ssim_pt(pred_tensor, target_tensor, data_range=1.0, ave
     return (np.mean(psnr_values), np.mean(ssim_values)) if average else (sum(psnr_values), sum(ssim_values))
 
 
+def calculate_batch_psnr_ssim_color(real_dir, fake_dir, data_range=255.0, target_size=(128, 128)):
+    """
+    Calculate PSNR and SSIM for color images (no grayscale conversion)
+
+    Args:
+        real_dir: Directory containing reference images
+        fake_dir: Directory containing generated images
+        data_range: Pixel value range (255 for [0,255], 1 for [0,1])
+        target_size: Target image size (width, height)
+
+    Returns:
+        Tuple of (mean PSNR, mean SSIM)
+    """
+    # Get matched file lists
+    real_files = sorted([f for f in os.listdir(real_dir)
+                         if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
+    fake_files = sorted([f for f in os.listdir(fake_dir)
+                         if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
+
+    assert len(real_files) == len(fake_files), "Mismatched number of files"
+
+    assert real_files == fake_files, "Filename mismatch"
+
+    psnr_values = []
+    ssim_values = []
+    error_files = []
+
+    for filename in tqdm(real_files, desc="Calculate Color PSNR & SSIM"):
+        try:
+            # Load images (BGR format)
+            real_img = cv2.imread(os.path.join(real_dir, filename), cv2.IMREAD_COLOR)
+            fake_img = cv2.imread(os.path.join(fake_dir, filename), cv2.IMREAD_COLOR)
+
+            # Validate loading
+            if real_img is None or fake_img is None:
+                raise ValueError("Image loading failed")
+
+            # Resize to target dimensions
+            real_img = cv2.resize(real_img, target_size, interpolation=cv2.INTER_AREA)
+            fake_img = cv2.resize(fake_img, target_size, interpolation=cv2.INTER_AREA)
+
+            # Convert BGR to RGB
+            real_img = cv2.cvtColor(real_img, cv2.COLOR_BGR2RGB)
+            fake_img = cv2.cvtColor(fake_img, cv2.COLOR_BGR2RGB)
+
+            # Convert to float and normalize
+            real_img = real_img.astype(np.float64)
+            fake_img = fake_img.astype(np.float64)
+            if data_range == 1.0:
+                real_img /= 255.0
+                fake_img /= 255.0
+
+            # Calculate color PSNR (use all three channels)
+            psnr = peak_signal_noise_ratio(real_img, fake_img, data_range=data_range)
+
+            # Calculate color SSIM (multi-channel mode)
+            ssim = structural_similarity(
+                real_img, fake_img,
+                data_range=data_range,
+                channel_axis=2  # Specify channel dimension
+            )
+
+            psnr_values.append(psnr)
+            ssim_values.append(ssim)
+
+        except Exception as e:
+            error_files.append(filename)
+            print(f"\nProcessing failed: {filename} - Error: {str(e)}")
+            continue
+
+    if error_files:
+        print(f"\nWarning: {len(error_files)} files failed processing")
+        with open("error_log_color.txt", "w") as f:
+            f.write("\n".join(error_files))
+
+    return np.mean(psnr_values), np.mean(ssim_values)
+
+
+def calculate_batch_psnr_ssim_pt_color(pred_tensor, target_tensor, data_range=1.0, average=False):
+    """
+    Calculate PSNR and SSIM for color tensor inputs (no grayscale conversion)
+
+    Args:
+        pred_tensor: Predicted image tensor [B,C,H,W] or [C,H,W]
+        target_tensor: Target image tensor (must match shape)
+        data_range: Pixel value range (255 or 1)
+        average: Return average (True) or sum (False)
+
+    Returns:
+        Tuple of (PSNR result, SSIM result)
+    """
+    # Convert to NumPy and ensure CPU
+    pred_np = pred_tensor.detach().cpu().numpy()
+    target_np = target_tensor.detach().cpu().numpy()
+
+    # Initialize results storage
+    psnr_values = []
+    ssim_values = []
+
+    # Handle single and batch inputs
+    if len(pred_np.shape) == 3:  # Single image [C,H,W]
+        pred_np = [np.transpose(pred_np, (1, 2, 0))]  # Convert to [H,W,C]
+        target_np = [np.transpose(target_np, (1, 2, 0))]
+    else:  # Batch [B,C,H,W]
+        pred_np = [np.transpose(p, (1, 2, 0)) for p in pred_np]  # Convert each to [H,W,C]
+        target_np = [np.transpose(t, (1, 2, 0)) for t in target_np]
+
+    # Process each image
+    for p, t in zip(pred_np, target_np):
+        # Convert to float64
+        p = p.astype(np.float64)
+        t = t.astype(np.float64)
+
+        # Normalize if necessary
+        if data_range == 1.0 and p.max() > 1.0:
+            p /= 255.0
+            t /= 255.0
+
+        # Calculate color PSNR
+        psnr = peak_signal_noise_ratio(
+            t, p,  # Order: (reference, test)
+            data_range=data_range
+        )
+        psnr_values.append(psnr)
+
+        # Calculate color SSIM (multi-channel mode)
+        ssim = structural_similarity(
+            t, p,  # Order: (reference, test)
+            data_range=data_range,
+            channel_axis=2  # Specify channel dimension
+        )
+        ssim_values.append(ssim)
+
+    # Return results
+    return (np.mean(psnr_values), np.mean(ssim_values)) if average else (sum(psnr_values), sum(ssim_values))
+
+
 if __name__ == '__main__':
     # Set target size and batch size
     TARGET_SIZE = (256, 256)
-    BATCH_SIZE = 16
+    BATCH_SIZE = 1
 
     # Path configuration
-    target_path = 'your_traget_path'
-    fake_path = 'your_fake_path'
+    target_path = '/mnt/disk1/ruanwentao/data/Character/denoise/test/target'
+    fake_path = '/mnt/disk1/ruanwentao/code/ImageRestoration/logs/Character/denoise/CharFormer/results/286'
 
     # Calculate metrics
     psnr, ssim = calculate_batch_psnr_ssim(target_path, fake_path, target_size=TARGET_SIZE)
